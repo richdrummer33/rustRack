@@ -63,6 +63,20 @@ void BridgeServer::publish(std::string json) {
     latest_seq_++;
 }
 
+void BridgeServer::send_one(std::string json) {
+    if (json.empty()) return;
+    if (json.back() != '\n') json.push_back('\n');
+    std::lock_guard<std::mutex> lk(extra_mu_);
+    extra_out_.push_back(std::move(json));
+}
+
+std::vector<std::string> BridgeServer::drain_inbound() {
+    std::vector<std::string> out;
+    std::lock_guard<std::mutex> lk(inbound_mu_);
+    out.swap(inbound_);
+    return out;
+}
+
 void BridgeServer::closeSocket(socket_t s) {
     if (s == kInvalid) return;
     BS_CLOSE((decltype(BS_CLOSE(0)))s);
@@ -111,6 +125,10 @@ void BridgeServer::run() {
         FD_ZERO(&rfds);
         FD_SET((int)listen_sock, &rfds);
         int maxfd = (int)listen_sock;
+        for (socket_t c : clients_) {
+            FD_SET((int)c, &rfds);
+            if ((int)c > maxfd) maxfd = (int)c;
+        }
 
         timeval tv{};
         tv.tv_sec = 0;
@@ -126,7 +144,57 @@ void BridgeServer::run() {
                 setNonBlocking(cs);
                 clients_.push_back(cs);
                 client_seq_.push_back(0);
+                client_rx_.emplace_back();
             }
+        }
+
+        // Drain inbound bytes from each client and split on '\n'.
+        for (std::size_t i = 0; i < clients_.size();) {
+            if (!FD_ISSET((int)clients_[i], &rfds)) { ++i; continue; }
+            char buf[4096];
+#ifdef _WIN32
+            int n = ::recv((SOCKET)clients_[i], buf, sizeof(buf), 0);
+#else
+            ssize_t n = ::recv((int)clients_[i], buf, sizeof(buf), 0);
+#endif
+            if (n > 0) {
+                client_rx_[i].append(buf, buf + n);
+                std::string& rx = client_rx_[i];
+                std::size_t pos = 0;
+                while (true) {
+                    std::size_t nl = rx.find('\n', pos);
+                    if (nl == std::string::npos) break;
+                    std::string line = rx.substr(pos, nl - pos);
+                    if (!line.empty() && line.back() == '\r') line.pop_back();
+                    if (!line.empty()) {
+                        std::lock_guard<std::mutex> lk(inbound_mu_);
+                        inbound_.push_back(std::move(line));
+                    }
+                    pos = nl + 1;
+                }
+                if (pos > 0) rx.erase(0, pos);
+                ++i;
+            } else if (n == 0) {
+                closeSocket(clients_[i]);
+                clients_.erase(clients_.begin() + i);
+                client_seq_.erase(client_seq_.begin() + i);
+                client_rx_.erase(client_rx_.begin() + i);
+            } else if (BS_LAST_ERR == BS_ERR_WOULDBLOCK) {
+                ++i;
+            } else {
+                closeSocket(clients_[i]);
+                clients_.erase(clients_.begin() + i);
+                client_seq_.erase(client_seq_.begin() + i);
+                client_rx_.erase(client_rx_.begin() + i);
+            }
+        }
+
+        // Build the per-tick outbound payload: any send_one() frames
+        // queued, plus the latest snapshot if any client is behind on it.
+        std::deque<std::string> extra;
+        {
+            std::lock_guard<std::mutex> lk(extra_mu_);
+            extra.swap(extra_out_);
         }
 
         std::string snap;
@@ -136,29 +204,52 @@ void BridgeServer::run() {
             snap = latest_;
             seq = latest_seq_;
         }
-        if (snap.empty()) continue;
-        if (snap.back() != '\n') snap.push_back('\n');
+        if (!snap.empty() && snap.back() != '\n') snap.push_back('\n');
 
         for (std::size_t i = 0; i < clients_.size();) {
-            if (client_seq_[i] == seq) { ++i; continue; }
+            bool dropped = false;
+
+            for (const std::string& frame : extra) {
 #ifdef _WIN32
-            int sent = ::send((SOCKET)clients_[i], snap.data(),
-                              (int)snap.size(), 0);
+                int sent = ::send((SOCKET)clients_[i], frame.data(),
+                                  (int)frame.size(), 0);
 #else
-            ssize_t sent = ::send((int)clients_[i], snap.data(),
-                                  snap.size(), MSG_NOSIGNAL);
+                ssize_t sent = ::send((int)clients_[i], frame.data(),
+                                      frame.size(), MSG_NOSIGNAL);
 #endif
-            if (sent < 0 && BS_LAST_ERR == BS_ERR_WOULDBLOCK) {
-                ++i;
-                continue;
+                if (sent < 0 && BS_LAST_ERR == BS_ERR_WOULDBLOCK) continue;
+                if (sent < 0) {
+                    closeSocket(clients_[i]);
+                    clients_.erase(clients_.begin() + i);
+                    client_seq_.erase(client_seq_.begin() + i);
+                    client_rx_.erase(client_rx_.begin() + i);
+                    dropped = true;
+                    break;
+                }
             }
-            if (sent < 0) {
-                closeSocket(clients_[i]);
-                clients_.erase(clients_.begin() + i);
-                client_seq_.erase(client_seq_.begin() + i);
-                continue;
+            if (dropped) continue;
+
+            if (!snap.empty() && client_seq_[i] != seq) {
+#ifdef _WIN32
+                int sent = ::send((SOCKET)clients_[i], snap.data(),
+                                  (int)snap.size(), 0);
+#else
+                ssize_t sent = ::send((int)clients_[i], snap.data(),
+                                      snap.size(), MSG_NOSIGNAL);
+#endif
+                if (sent < 0 && BS_LAST_ERR == BS_ERR_WOULDBLOCK) {
+                    ++i;
+                    continue;
+                }
+                if (sent < 0) {
+                    closeSocket(clients_[i]);
+                    clients_.erase(clients_.begin() + i);
+                    client_seq_.erase(client_seq_.begin() + i);
+                    client_rx_.erase(client_rx_.begin() + i);
+                    continue;
+                }
+                client_seq_[i] = seq;
             }
-            client_seq_[i] = seq;
             ++i;
         }
     }
@@ -166,6 +257,7 @@ void BridgeServer::run() {
     for (socket_t c : clients_) closeSocket(c);
     clients_.clear();
     client_seq_.clear();
+    client_rx_.clear();
     closeSocket(listen_sock);
 #ifdef _WIN32
     WSACleanup();
