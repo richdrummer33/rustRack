@@ -1,0 +1,17 @@
+[package]
+name = "host-input-helper"
+version = "0.1.0"
+edition = "2021"
+description = "Subscribes to RackTouchBridge, serves clients over WebSocket, injects synthesized input."
+publish = false
+
+[[bin]]
+name = "host-input-helper"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time", "signal"] }
+tokio-tungstenite = "0.21"
+futures-util = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
