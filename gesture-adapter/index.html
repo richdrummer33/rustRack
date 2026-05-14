@@ -19,6 +19,20 @@
     <ol id="log"></ol>
   </aside>
 
+  <div id="actionSheet" hidden>
+    <div class="action-backdrop"></div>
+    <div class="action-card">
+      <header id="actionHeader">Module</header>
+      <button class="action" data-action="bypass">Bypass</button>
+      <button class="action" data-action="disconnect">Disconnect cables</button>
+      <button class="action" data-action="reset">Reset</button>
+      <button class="action" data-action="randomize">Randomize</button>
+      <button class="action" data-action="clone">Duplicate</button>
+      <button class="action danger" data-action="delete">Delete</button>
+      <button class="action cancel" data-action="">Cancel</button>
+    </div>
+  </div>
+
   <script src="app.js"></script>
 </body>
 </html>

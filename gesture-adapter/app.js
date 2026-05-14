@@ -18,6 +18,8 @@ const statusEl = document.getElementById('status');
 const modeEl   = document.getElementById('mode');
 const logEl    = document.getElementById('log');
 const logPanel = document.getElementById('logPanel');
+const sheetEl  = document.getElementById('actionSheet');
+const sheetHeader = document.getElementById('actionHeader');
 
 let scene = null;
 let ws = null;
@@ -26,6 +28,7 @@ const pointers = new Map();
 let pinch = null;
 let cablePreview = null;
 const elIndex = new Map();
+const panelAssets = new Map();   // "pluginSlug/modelSlug" -> SVG string
 
 function el(tag, attrs = {}, text) {
   const e = document.createElementNS(SVG_NS, tag);
@@ -72,6 +75,7 @@ function connect() {
   ws.onmessage = ev => {
     let msg; try { msg = JSON.parse(ev.data); } catch { return; }
     if (msg.op === 'snapshot') applySnapshot(msg);
+    else if (msg.op === 'module-asset') applyAsset(msg);
     else if (msg.op === 'ack') {} // silent
     else if (msg.op === 'err') logLine('err', msg);
     else logLine('in', msg);
@@ -83,9 +87,28 @@ function connect() {
   ws.onerror = () => {};
 }
 
+function applyAsset(msg) {
+  if (!msg.pluginSlug || !msg.modelSlug || msg.format !== 'svg') return;
+  const key = `${msg.pluginSlug}/${msg.modelSlug}`;
+  panelAssets.set(key, msg.data || '');
+  if (scene) render();
+}
+
 function applySnapshot(s) {
   scene = s;
   render();
+}
+
+function panelKey(m) {
+  if (!m.pluginSlug || !m.modelSlug) return null;
+  return `${m.pluginSlug}/${m.modelSlug}`;
+}
+
+function parseSvgString(svgText) {
+  const doc = new DOMParser().parseFromString(svgText, 'image/svg+xml');
+  const root = doc.documentElement;
+  if (!root || root.nodeName.toLowerCase() !== 'svg') return null;
+  return document.importNode(root, true);
 }
 
 function render() {
@@ -97,13 +120,42 @@ function render() {
 
   for (const m of scene.modules) {
     const [x, y, w, h] = m.screenBox;
+    const key = panelKey(m);
+    const hasPanel = key && panelAssets.has(key);
+
+    // 1. Rect underneath: visually outlined when no panel, fully
+    //    transparent when we're overlaying real SVG artwork.
+    const rectClasses = ['module'];
+    if (hasPanel) rectClasses.push('has-panel');
+    if (m.bypassed) rectClasses.push('bypassed');
     sceneEl.appendChild(el('rect',
-      { x, y, width: w, height: h, rx: 4, class: 'module',
+      { x, y, width: w, height: h, rx: 4,
+        class: rectClasses.join(' '),
         'data-id': `module:${m.id}` }));
+
+    // 2. Panel SVG, scaled into the module's screenBox. Pointer events
+    //    disabled — touch routing still works off snapshot coords.
+    if (hasPanel) {
+      const inner = parseSvgString(panelAssets.get(key));
+      if (inner) {
+        inner.setAttribute('x', x);
+        inner.setAttribute('y', y);
+        inner.setAttribute('width', w);
+        inner.setAttribute('height', h);
+        inner.setAttribute('preserveAspectRatio', 'none');
+        inner.setAttribute('class', 'panel');
+        sceneEl.appendChild(inner);
+      }
+    }
+
+    // 3. Module name label when no panel is rendered (otherwise it
+    //    would float on top of real artwork).
+    const labelClass = 'mod-label' + (hasPanel ? ' has-panel' : '');
     sceneEl.appendChild(el('text',
-      { x: x + w/2, y: y + 22, 'text-anchor': 'middle', class: 'mod-label' },
+      { x: x + w/2, y: y + 22, 'text-anchor': 'middle', class: labelClass },
       m.name));
 
+    // 4. Knob and jack hit-zone markers, drawn on top.
     for (const p of m.params) {
       const id = `param:${m.id}:${p.id}`;
       const c = el('circle',
@@ -157,7 +209,7 @@ function hitTest(x, y) {
   for (const m of scene.modules) {
     const [x0, y0, w, h] = m.screenBox;
     if (x >= x0 && x <= x0+w && y >= y0 && y <= y0+h)
-      return { kind: 'module', moduleId: m.id };
+      return { kind: 'module', moduleId: m.id, name: m.name };
   }
   return null;
 }
@@ -209,6 +261,41 @@ function portRefFromHit(hit) {
   return { moduleId: hit.moduleId, port: hit.kind, portId: hit.portId };
 }
 
+function moduleById(id) {
+  return scene ? scene.modules.find(m => m.id === id) : null;
+}
+
+function openActionSheet(moduleId) {
+  const m = moduleById(moduleId);
+  if (!m) return;
+  sheetHeader.textContent = m.name ? `${m.name}` : `Module ${moduleId}`;
+  // Reflect bypass state in label so the user knows what tapping it does.
+  const bypassBtn = sheetEl.querySelector('button[data-action="bypass"]');
+  if (bypassBtn) bypassBtn.textContent = m.bypassed ? 'Un-bypass' : 'Bypass';
+  sheetEl.dataset.moduleId = String(moduleId);
+  sheetEl.hidden = false;
+}
+
+function closeActionSheet() {
+  sheetEl.hidden = true;
+  delete sheetEl.dataset.moduleId;
+}
+
+sheetEl.addEventListener('click', ev => {
+  const btn = ev.target.closest('button.action');
+  if (!btn) {
+    // Clicked the backdrop.
+    if (ev.target.classList.contains('action-backdrop')) closeActionSheet();
+    return;
+  }
+  const action = btn.dataset.action;
+  const moduleId = Number(sheetEl.dataset.moduleId);
+  closeActionSheet();
+  if (action && !Number.isNaN(moduleId)) {
+    send({ kind: 'module-action', action, moduleId });
+  }
+});
+
 sceneEl.addEventListener('pointerdown', ev => {
   ev.preventDefault();
   sceneEl.setPointerCapture(ev.pointerId);
@@ -226,7 +313,11 @@ sceneEl.addEventListener('pointerdown', ev => {
 
   s.longTimer = setTimeout(() => {
     if (pointers.has(ev.pointerId) && !s.moved && !s.consumed && s.hit) {
-      send({ kind: 'context', target: s.hit });
+      if (s.hit.kind === 'module') {
+        openActionSheet(s.hit.moduleId);
+      } else {
+        send({ kind: 'context', target: s.hit });
+      }
       s.consumed = true;
     }
   }, LONG_PRESS_MS);

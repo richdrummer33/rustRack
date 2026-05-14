@@ -8,7 +8,7 @@
     "op":   { "const": "intent" },
     "seq":  { "type": "integer", "minimum": 0 },
     "kind": {
-      "enum": ["tap", "knob-drag", "cable", "pan", "zoom", "context", "set-param"]
+      "enum": ["tap", "knob-drag", "cable", "pan", "zoom", "context", "set-param", "module-action"]
     }
   },
   "$defs": {
@@ -118,6 +118,18 @@
           "moduleId": { "type": "integer" },
           "paramId":  { "type": "integer" },
           "value":    { "type": "number" }
+        }
+      }
+    },
+    {
+      "if":   { "properties": { "kind": { "const": "module-action" } } },
+      "then": {
+        "required": ["moduleId", "action"],
+        "properties": {
+          "moduleId": { "type": "integer" },
+          "action": {
+            "enum": ["bypass", "disconnect", "reset", "randomize", "clone", "delete"]
+          }
         }
       }
     }

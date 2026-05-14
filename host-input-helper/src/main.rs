@@ -6,9 +6,10 @@ use tokio::net::TcpListener;
 use tokio::signal;
 use tokio::sync::{broadcast, RwLock};
 
+use host_input_helper::bridge::{self, AssetCache, BridgeHandle};
 use host_input_helper::injector::{Injector, LogInjector};
 use host_input_helper::scene::SceneCache;
-use host_input_helper::{bridge, server};
+use host_input_helper::server;
 
 const DEFAULT_BRIDGE: &str = "127.0.0.1:54321";
 const DEFAULT_WS_BIND: &str = "127.0.0.1:54323";
@@ -32,12 +33,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (snap_tx, _) = broadcast::channel::<Arc<String>>(SNAPSHOT_CAP);
     let last: Arc<RwLock<Option<Arc<String>>>> = Arc::new(RwLock::new(None));
     let scene: Arc<RwLock<SceneCache>> = Arc::new(RwLock::new(SceneCache::default()));
+    let assets: Arc<RwLock<AssetCache>> = Arc::new(RwLock::new(AssetCache::default()));
+    let (bridge_handle, cmd_rx) = bridge::channel();
+    let bridge_handle = Arc::new(bridge_handle);
 
     tokio::spawn(bridge::run(
         bridge_addr,
         snap_tx.clone(),
         last.clone(),
         scene.clone(),
+        assets.clone(),
+        cmd_rx,
     ));
 
     let listener = TcpListener::bind(ws_bind).await?;
@@ -52,8 +58,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let inj = injector.clone();
                         let last = last.clone();
                         let scene = scene.clone();
+                        let assets = assets.clone();
+                        let bridge_h: Arc<BridgeHandle> = bridge_handle.clone();
                         tokio::spawn(async move {
-                            if let Err(e) = server::client_session(stream, peer, rx, inj, last, scene).await {
+                            if let Err(e) = server::client_session(
+                                stream, peer, rx, inj, last, scene, assets, bridge_h,
+                            ).await {
                                 eprintln!("client {peer} ended: {e}");
                             }
                         });

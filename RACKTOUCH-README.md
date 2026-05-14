@@ -205,6 +205,38 @@ something else on your machine is already using them.
 
 ---
 
+## Recent additions: panel artwork and module actions
+
+Two pieces have been added on top of the original snapshot/intent pipeline
+to make the touch client less reliant on the host's video stream.
+
+The first is **panel artwork shipping**. The plugin now ships each module
+type's actual panel SVG to the helper exactly once, the first time it sees
+that module type in a session. The helper caches every asset it sees and
+replays the cache to any client that connects later, so a phone joining
+mid-session gets the artwork it needs without waiting for new modules to
+appear. The gesture client uses the cached SVG to draw a faithful image of
+each module's panel inside the snapshot-derived rectangle, falling back to
+the wireframe label when no asset is available. Touch routing is unchanged
+— it still goes through the snapshot's knob and jack coordinates, so the
+SVG is purely visual.
+
+The second is **module actions**. The protocol now carries a new intent
+called `module-action` covering the six universal Rack operations:
+`bypass`, `disconnect`, `reset`, `randomize`, `clone`, and `delete`. The
+phone shows an action sheet on long-press of a module, and the chosen
+action round-trips from phone to helper to plugin to Rack's API, going
+through Rack's normal undo history just as if the user had right-clicked
+the module on the host. Plugin-defined custom menu items are not yet
+exposed — that needs real menu introspection and is deferred until the
+asset and action paths have been exercised in practice.
+
+Both additions rely on a new bidirectional channel on the existing TCP
+port 54321. Snapshots and assets flow from plugin to helper as before;
+action requests now flow from helper to plugin and return as `action-ack`
+frames that the helper translates back into client-facing `ack` or `err`
+messages tagged with the original client-side sequence number.
+
 ## Where the code lives
 
 `rack-touch-bridge/` is the VCV Rack 2 plugin, written in C++ against the
