@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/richdrummer33/rustRack/protocol/intent.schema.json",
+  "title": "Touch-Control Intent",
+  "type": "object",
+  "required": ["op", "kind", "seq"],
+  "properties": {
+    "op":   { "const": "intent" },
+    "seq":  { "type": "integer", "minimum": 0 },
+    "kind": {
+      "enum": ["tap", "knob-drag", "cable", "pan", "zoom", "context", "set-param"]
+    }
+  },
+  "$defs": {
+    "target": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": { "enum": ["param", "input", "output", "module", "point"] },
+        "moduleId": { "type": "integer" },
+        "paramId":  { "type": "integer" },
+        "portId":   { "type": "integer" },
+        "x":        { "type": "number" },
+        "y":        { "type": "number" }
+      },
+      "allOf": [
+        {
+          "if":   { "properties": { "kind": { "const": "param" } } },
+          "then": { "required": ["moduleId", "paramId"] }
+        },
+        {
+          "if":   { "properties": { "kind": { "enum": ["input", "output"] } } },
+          "then": { "required": ["moduleId", "portId"] }
+        },
+        {
+          "if":   { "properties": { "kind": { "const": "module" } } },
+          "then": { "required": ["moduleId"] }
+        },
+        {
+          "if":   { "properties": { "kind": { "const": "point" } } },
+          "then": { "required": ["x", "y"] }
+        }
+      ]
+    },
+    "portRef": {
+      "type": "object",
+      "required": ["moduleId", "port", "portId"],
+      "properties": {
+        "moduleId": { "type": "integer" },
+        "port":     { "enum": ["input", "output"] },
+        "portId":   { "type": "integer" }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if":   { "properties": { "kind": { "const": "tap" } } },
+      "then": { "required": ["target"], "properties": { "target": { "$ref": "#/$defs/target" } } }
+    },
+    {
+      "if":   { "properties": { "kind": { "const": "knob-drag" } } },
+      "then": {
+        "required": ["moduleId", "paramId", "deltaPx"],
+        "properties": {
+          "moduleId": { "type": "integer" },
+          "paramId":  { "type": "integer" },
+          "deltaPx":  { "type": "number" },
+          "fine":     { "type": "boolean", "default": false }
+        }
+      }
+    },
+    {
+      "if":   { "properties": { "kind": { "const": "cable" } } },
+      "then": {
+        "required": ["from", "to"],
+        "properties": {
+          "from": { "$ref": "#/$defs/portRef" },
+          "to":   { "$ref": "#/$defs/portRef" }
+        }
+      }
+    },
+    {
+      "if":   { "properties": { "kind": { "const": "pan" } } },
+      "then": {
+        "required": ["dx", "dy"],
+        "properties": {
+          "dx": { "type": "number" },
+          "dy": { "type": "number" }
+        }
+      }
+    },
+    {
+      "if":   { "properties": { "kind": { "const": "zoom" } } },
+      "then": {
+        "required": ["factor", "anchor"],
+        "properties": {
+          "factor": { "type": "number", "exclusiveMinimum": 0 },
+          "anchor": {
+            "type": "object",
+            "required": ["x", "y"],
+            "properties": {
+              "x": { "type": "number" },
+              "y": { "type": "number" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if":   { "properties": { "kind": { "const": "context" } } },
+      "then": { "required": ["target"], "properties": { "target": { "$ref": "#/$defs/target" } } }
+    },
+    {
+      "if":   { "properties": { "kind": { "const": "set-param" } } },
+      "then": {
+        "required": ["moduleId", "paramId", "value"],
+        "properties": {
+          "moduleId": { "type": "integer" },
+          "paramId":  { "type": "integer" },
+          "value":    { "type": "number" }
+        }
+      }
+    }
+  ]
+}
