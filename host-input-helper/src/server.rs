@@ -8,6 +8,7 @@ use tokio_tungstenite::accept_async;
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::injector::Injector;
+use crate::scene::SceneCache;
 
 pub async fn client_session(
     stream: TcpStream,
@@ -15,6 +16,7 @@ pub async fn client_session(
     mut snapshots: broadcast::Receiver<Arc<String>>,
     injector: Arc<dyn Injector>,
     last: Arc<RwLock<Option<Arc<String>>>>,
+    scene: Arc<RwLock<SceneCache>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let ws = accept_async(stream).await?;
     eprintln!("client {peer}: handshake ok");
@@ -45,7 +47,8 @@ pub async fn client_session(
                     None => break,
                     Some(Err(_)) => break,
                     Some(Ok(Message::Text(t))) => {
-                        if let Some(reply) = handle_text(&t, &*injector) {
+                        let snapshot = scene.read().await.clone();
+                        if let Some(reply) = handle_text(&t, &*injector, &snapshot) {
                             if writer.send(Message::Text(reply)).await.is_err() {
                                 break;
                             }
@@ -61,7 +64,7 @@ pub async fn client_session(
     Ok(())
 }
 
-fn handle_text(text: &str, injector: &dyn Injector) -> Option<String> {
+fn handle_text(text: &str, injector: &dyn Injector, scene: &SceneCache) -> Option<String> {
     let v: serde_json::Value = match serde_json::from_str(text) {
         Ok(v) => v,
         Err(e) => return Some(err_reply(None, &format!("parse: {e}"))),
@@ -72,7 +75,7 @@ fn handle_text(text: &str, injector: &dyn Injector) -> Option<String> {
         "hello" => None,
         "intent" => {
             let kind = v.get("kind").and_then(|x| x.as_str()).unwrap_or("");
-            match injector.handle(kind, &v) {
+            match injector.handle(kind, &v, scene) {
                 Ok(()) => Some(ack_reply(seq)),
                 Err(reason) => Some(err_reply(seq, &reason)),
             }
