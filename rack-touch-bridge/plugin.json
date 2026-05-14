@@ -1,0 +1,17 @@
+{
+  "slug": "RackTouchBridge",
+  "name": "Rack Touch Bridge",
+  "version": "2.0.0",
+  "license": "GPL-3.0-or-later",
+  "brand": "RackTouch",
+  "author": "richdrummer33",
+  "description": "Broadcasts the Rack scene graph over localhost TCP for remote touch-control clients.",
+  "modules": [
+    {
+      "slug": "Bridge",
+      "name": "Bridge",
+      "description": "Exposes module/param/port screen coordinates as newline-delimited JSON on 127.0.0.1:54321.",
+      "tags": ["Utility"]
+    }
+  ]
+}
