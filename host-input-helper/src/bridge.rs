@@ -7,10 +7,13 @@ use tokio::net::TcpStream;
 use tokio::sync::{broadcast, RwLock};
 use tokio::time::sleep;
 
+use crate::scene::SceneCache;
+
 pub async fn run(
     addr: SocketAddr,
     tx: broadcast::Sender<Arc<String>>,
     last: Arc<RwLock<Option<Arc<String>>>>,
+    scene: Arc<RwLock<SceneCache>>,
 ) {
     loop {
         match TcpStream::connect(addr).await {
@@ -31,7 +34,8 @@ pub async fn run(
                                 continue;
                             }
                             match wrap_envelope(trimmed) {
-                                Ok(text) => {
+                                Ok((text, parsed)) => {
+                                    *scene.write().await = SceneCache::from_envelope(&parsed);
                                     let arc = Arc::new(text);
                                     *last.write().await = Some(arc.clone());
                                     let _ = tx.send(arc);
@@ -54,11 +58,12 @@ pub async fn run(
     }
 }
 
-fn wrap_envelope(raw: &str) -> Result<String, serde_json::Error> {
+fn wrap_envelope(raw: &str) -> Result<(String, serde_json::Value), serde_json::Error> {
     let mut v: serde_json::Value = serde_json::from_str(raw)?;
     if let Some(obj) = v.as_object_mut() {
         obj.insert("op".into(), serde_json::Value::String("snapshot".into()));
         obj.insert("v".into(), serde_json::Value::from(1));
     }
-    Ok(v.to_string())
+    let text = v.to_string();
+    Ok((text, v))
 }
