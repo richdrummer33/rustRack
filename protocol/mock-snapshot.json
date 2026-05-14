@@ -1,0 +1,59 @@
+{
+  "op": "snapshot",
+  "v": 1,
+  "t": 0.0,
+  "window": { "w": 1920, "h": 1080 },
+  "view":   { "zoom": 1.0 },
+  "hovered": { "kind": "none" },
+  "modules": [
+    {
+      "id": 1,
+      "name": "VCO",
+      "screenBox": [220, 180, 150, 380],
+      "params": [
+        { "id": 0, "name": "Freq",  "x": 295, "y": 240 },
+        { "id": 1, "name": "Fine",  "x": 295, "y": 320 },
+        { "id": 2, "name": "FM",    "x": 295, "y": 400 }
+      ],
+      "inputs": [
+        { "id": 0, "name": "V/OCT", "x": 250, "y": 520 },
+        { "id": 1, "name": "FM-IN", "x": 295, "y": 520 }
+      ],
+      "outputs": [
+        { "id": 0, "name": "SIN",   "x": 340, "y": 520 },
+        { "id": 1, "name": "SQR",   "x": 340, "y": 550 }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "VCF",
+      "screenBox": [400, 180, 150, 380],
+      "params": [
+        { "id": 0, "name": "Cutoff", "x": 475, "y": 240 },
+        { "id": 1, "name": "Res",    "x": 475, "y": 320 }
+      ],
+      "inputs": [
+        { "id": 0, "name": "IN",     "x": 430, "y": 520 },
+        { "id": 1, "name": "CV",     "x": 475, "y": 520 }
+      ],
+      "outputs": [
+        { "id": 0, "name": "OUT",    "x": 520, "y": 520 }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "VCA",
+      "screenBox": [580, 180, 100, 380],
+      "params": [
+        { "id": 0, "name": "Level",  "x": 630, "y": 240 }
+      ],
+      "inputs": [
+        { "id": 0, "name": "IN",     "x": 605, "y": 520 },
+        { "id": 1, "name": "CV",     "x": 655, "y": 520 }
+      ],
+      "outputs": [
+        { "id": 0, "name": "OUT",    "x": 655, "y": 550 }
+      ]
+    }
+  ]
+}
