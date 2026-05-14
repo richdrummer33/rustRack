@@ -6,15 +6,9 @@ use tokio::net::TcpListener;
 use tokio::signal;
 use tokio::sync::{broadcast, RwLock};
 
-mod bridge;
-#[cfg(target_os = "windows")]
-mod enigo_injector;
-mod injector;
-mod scene;
-mod server;
-
-use injector::{Injector, LogInjector};
-use scene::SceneCache;
+use host_input_helper::injector::{Injector, LogInjector};
+use host_input_helper::scene::SceneCache;
+use host_input_helper::{bridge, server};
 
 const DEFAULT_BRIDGE: &str = "127.0.0.1:54321";
 const DEFAULT_WS_BIND: &str = "127.0.0.1:54323";
@@ -91,7 +85,7 @@ fn make_injector() -> Arc<dyn Injector> {
 
 #[cfg(target_os = "windows")]
 fn default_injector() -> Arc<dyn Injector> {
-    Arc::new(enigo_injector::EnigoInjector::new())
+    Arc::new(host_input_helper::enigo_injector::EnigoInjector::new())
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -101,7 +95,7 @@ fn default_injector() -> Arc<dyn Injector> {
 
 #[cfg(target_os = "windows")]
 fn build_enigo_or_warn() -> Arc<dyn Injector> {
-    Arc::new(enigo_injector::EnigoInjector::new())
+    Arc::new(host_input_helper::enigo_injector::EnigoInjector::new())
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -116,4 +110,6 @@ fn injector_name() -> &'static str {
 }
 
 #[cfg(not(target_os = "windows"))]
-fn injector_name() -> &'static str { "log" }
+fn injector_name() -> &'static str {
+    "log"
+}
