@@ -90,3 +90,73 @@ fn collect(dst: &mut HashMap<i64, (f64, f64)>, src: Option<&Value>, id_key: &str
         dst.insert(id, (x, y));
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn sample() -> Value {
+        json!({
+            "t": 1.0,
+            "window": {"w": 1920, "h": 1080},
+            "view": {"zoom": 1.0},
+            "modules": [
+                {"id": 7, "name": "VCO",
+                 "screenBox": [100.0, 200.0, 150.0, 380.0],
+                 "params":  [{"id": 0, "name": "Freq", "x": 175.0, "y": 260.0},
+                             {"id": 2, "name": "FM",   "x": 175.0, "y": 400.0}],
+                 "inputs":  [{"id": 0, "name": "V/OCT", "x": 120.0, "y": 520.0}],
+                 "outputs": [{"id": 1, "name": "SIN",   "x": 220.0, "y": 520.0}]}
+            ]
+        })
+    }
+
+    #[test]
+    fn parses_modules_and_geometry() {
+        let cache = SceneCache::from_envelope(&sample());
+        let m = cache.modules.get(&7).expect("module 7 present");
+        assert_eq!(m.box_, [100.0, 200.0, 150.0, 380.0]);
+        assert_eq!(m.params.get(&0), Some(&(175.0, 260.0)));
+        assert_eq!(m.params.get(&2), Some(&(175.0, 400.0)));
+        assert_eq!(m.inputs.get(&0), Some(&(120.0, 520.0)));
+        assert_eq!(m.outputs.get(&1), Some(&(220.0, 520.0)));
+    }
+
+    #[test]
+    fn resolves_param_target() {
+        let cache = SceneCache::from_envelope(&sample());
+        let t = json!({"kind": "param", "moduleId": 7, "paramId": 2});
+        assert_eq!(cache.resolve_target(&t), Some((175.0, 400.0)));
+    }
+
+    #[test]
+    fn resolves_module_center() {
+        let cache = SceneCache::from_envelope(&sample());
+        let t = json!({"kind": "module", "moduleId": 7});
+        assert_eq!(cache.resolve_target(&t), Some((175.0, 390.0)));
+    }
+
+    #[test]
+    fn resolves_point_passthrough() {
+        let cache = SceneCache::from_envelope(&sample());
+        let t = json!({"kind": "point", "x": 50.5, "y": 60.25});
+        assert_eq!(cache.resolve_target(&t), Some((50.5, 60.25)));
+    }
+
+    #[test]
+    fn missing_target_returns_none() {
+        let cache = SceneCache::from_envelope(&sample());
+        assert!(cache.resolve_target(&json!({"kind": "param", "moduleId": 99, "paramId": 0})).is_none());
+        assert!(cache.resolve_target(&json!({"kind": "input", "moduleId": 7, "portId": 99})).is_none());
+    }
+
+    #[test]
+    fn resolves_port_ref() {
+        let cache = SceneCache::from_envelope(&sample());
+        let from = json!({"moduleId": 7, "port": "output", "portId": 1});
+        assert_eq!(cache.resolve_port_ref(&from), Some((220.0, 520.0)));
+        let to = json!({"moduleId": 7, "port": "input", "portId": 0});
+        assert_eq!(cache.resolve_port_ref(&to), Some((120.0, 520.0)));
+    }
+}

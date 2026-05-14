@@ -9,6 +9,10 @@ publish = false
 name = "host-input-helper"
 path = "src/main.rs"
 
+[lib]
+name = "host_input_helper"
+path = "src/lib.rs"
+
 [dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time", "signal"] }
 tokio-tungstenite = "0.21"
